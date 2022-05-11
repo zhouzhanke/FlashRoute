@@ -1,33 +1,31 @@
 /* Copyright (C) 2019 Neo Huang - All Rights Reserved */
 
-#include <csignal>
-#include <iostream>
-#include <unordered_map>
-#include <tuple>
-
-#include "glog/logging.h"
 #include <boost/format.hpp>
 #include <boost/version.hpp>
-#include "absl/flags/usage.h"
+#include <csignal>
+#include <iostream>
+#include <tuple>
+#include <unordered_map>
+
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
+#include "absl/flags/usage.h"
 #include "absl/strings/str_cat.h"
-
 #include "flashroute/blacklist.h"
+#include "flashroute/bogon_filter.h"
 #include "flashroute/dcb_manager.h"
 #include "flashroute/hitlist.h"
 #include "flashroute/network.h"
+#include "flashroute/output_parser.h"
+#include "flashroute/single_host.h"
 #include "flashroute/targets.h"
 #include "flashroute/traceroute.h"
 #include "flashroute/udp_prober.h"
 #include "flashroute/udp_prober_v6.h"
 #include "flashroute/utils.h"
-#include "flashroute/single_host.h"
-#include "flashroute/output_parser.h"
-#include "flashroute/bogon_filter.h"
+#include "glog/logging.h"
 
-ABSL_FLAG(bool, recommended_mode, false,
-          "Use recommended configuration.");
+ABSL_FLAG(bool, recommended_mode, false, "Use recommended configuration.");
 
 ABSL_FLAG(bool, sequential_scan, false, "Sequentially scan all targets.");
 
@@ -49,8 +47,7 @@ ABSL_FLAG(
 
 ABSL_FLAG(std::string, interface, "", "Relay Interface.");
 ABSL_FLAG(int32_t, probing_rate, 400000, "Probing rate.");
-ABSL_FLAG(std::string, default_payload_message,
-          "flashroute",
+ABSL_FLAG(std::string, default_payload_message, "flashroute",
           "Message embedded in payload of probe.");
 
 // Optimization: Preprobing.
@@ -89,8 +86,7 @@ ABSL_FLAG(std::string, output, "", "Output path.");
 
 ABSL_FLAG(std::string, tcpdump_output, "", "Tcpdump output path.");
 ABSL_FLAG(std::string, hitlist, "", "Hitlist filepath.");
-ABSL_FLAG(std::string, targets, "",
-              "Target filepath.");
+ABSL_FLAG(std::string, targets, "", "Target filepath.");
 
 ABSL_FLAG(bool, encode_timestamp, true,
           "Encode timestamp into the packets. Disable this can make the scan "
@@ -150,49 +146,51 @@ void printFlags() {
                       ? "udp"
                       : "udp-idempotent");
   VLOG(1) << boost::format("Default Payload Message: %|30t|%1%") %
-                   absl::GetFlag(FLAGS_default_payload_message);
+                 absl::GetFlag(FLAGS_default_payload_message);
   VLOG(1) << boost::format("Interface: %|30t|%1%") % finalInterface;
   VLOG(1) << boost::format("Destination Port: %|30t|%1%") %
-                   absl::GetFlag(FLAGS_dst_port);
+                 absl::GetFlag(FLAGS_dst_port);
   VLOG(1) << boost::format("Source Port: %|30t|%1%") %
-                   absl::GetFlag(FLAGS_src_port);
+                 absl::GetFlag(FLAGS_src_port);
   VLOG(1) << boost::format("Sequential Scan: %|30t|%1%") %
-                   (absl::GetFlag(FLAGS_sequential_scan) ? "true" : "false");
+                 (absl::GetFlag(FLAGS_sequential_scan) ? "true" : "false");
   VLOG(1) << boost::format("Probing rate: %|30t|%1% Packet Per Second") %
-                   absl::GetFlag(FLAGS_probing_rate);
+                 absl::GetFlag(FLAGS_probing_rate);
 
   VLOG(1) << " ========== Experiment Feature ========== ";
 
   VLOG(1) << boost::format("Scan granularity: %|30t|%1%") %
-                   absl::GetFlag(FLAGS_granularity);
+                 absl::GetFlag(FLAGS_granularity);
   VLOG(1) << boost::format("Preprobing: %|30t|%1%") %
-                   (absl::GetFlag(FLAGS_preprobing) ? "true" : "false");
+                 (absl::GetFlag(FLAGS_preprobing) ? "true" : "false");
   VLOG(1) << boost::format("Forward probing: %|30t|%1%") %
-                   (absl::GetFlag(FLAGS_forward_probing) ? "true" : "false");
+                 (absl::GetFlag(FLAGS_forward_probing) ? "true" : "false");
   VLOG(1) << boost::format("Forward GapLimit: %|30t|%1%") %
-                   absl::GetFlag(FLAGS_gaplimit);
+                 absl::GetFlag(FLAGS_gaplimit);
   VLOG(1) << boost::format("Remove Redundancy: %|30t|%1%") %
-                   (absl::GetFlag(FLAGS_remove_redundancy) ? "true" : "false");
+                 (absl::GetFlag(FLAGS_remove_redundancy) ? "true" : "false");
   VLOG(1) << boost::format("Distance Prediction: %|30t|%1%") %
-                   (absl::GetFlag(FLAGS_distance_prediction) ? "true"
-                                                             : "false");
+                 (absl::GetFlag(FLAGS_distance_prediction) ? "true" : "false");
   VLOG(1) << boost::format("Distance Prediction Span: %|30t|%1%") %
-                   absl::GetFlag(FLAGS_proximity_span);
+                 absl::GetFlag(FLAGS_proximity_span);
   VLOG(1) << boost::format("Split TTL: %|30t|%1%") %
-                   absl::GetFlag(FLAGS_split_ttl);
+                 absl::GetFlag(FLAGS_split_ttl);
   VLOG(1) << boost::format("Random Seed: %|30t|%1%") %
-                   absl::GetFlag(FLAGS_seed);
+                 absl::GetFlag(FLAGS_seed);
   VLOG(1) << boost::format("Scan Count: %|30t|%1%") %
-                   absl::GetFlag(FLAGS_scan_count);
+                 absl::GetFlag(FLAGS_scan_count);
   VLOG(1) << boost::format("Randomize address: %|30t|%1%") %
                  (absl::GetFlag(FLAGS_randomize_address_in_extra_scans)
                       ? "true"
                       : "false");
 
   VLOG(1) << " ========== Miscellaneous ========== ";
-  VLOG(1) << boost::format("Backlist: %|15t|%1%") % absl::GetFlag(FLAGS_blacklist);
-  VLOG(1) << boost::format("Bgp: %|15t|%1%") % absl::GetFlag(FLAGS_bogon_filter_potaroo);
-  VLOG(1) << boost::format("History: %|15t|%1%") % absl::GetFlag(FLAGS_history_probing_result);
+  VLOG(1) << boost::format("Backlist: %|15t|%1%") %
+                 absl::GetFlag(FLAGS_blacklist);
+  VLOG(1) << boost::format("Bgp: %|15t|%1%") %
+                 absl::GetFlag(FLAGS_bogon_filter_potaroo);
+  VLOG(1) << boost::format("History: %|15t|%1%") %
+                 absl::GetFlag(FLAGS_history_probing_result);
   VLOG(1) << boost::format("Hitlist: %|15t|%1%") % absl::GetFlag(FLAGS_hitlist);
   VLOG(1) << boost::format("Target: %|15t|%1%") % absl::GetFlag(FLAGS_targets);
   VLOG(1) << boost::format("Output: %|15t|%1%") % absl::GetFlag(FLAGS_output);
@@ -232,6 +230,7 @@ int main(int argc, char* argv[]) {
     finalInterface = absl::GetFlag(FLAGS_interface);
   }
 
+  // 检查用户输入目标地址,检查方式过于简陋
   bool targetIsNetwork = isNetwork(target);
 
   printFlags();

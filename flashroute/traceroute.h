@@ -1,6 +1,7 @@
 /* Copyright (C) 2019 Neo Huang - All Rights Reserved */
 #pragma once
 
+#include <boost/asio/thread_pool.hpp>
 #include <chrono>
 #include <cmath>
 #include <iostream>
@@ -8,19 +9,17 @@
 #include <mutex>
 #include <string>
 #include <unordered_set>
-#include <vector>
 #include <utility>
+#include <vector>
 
 #include "absl/strings/string_view.h"
-#include <boost/asio/thread_pool.hpp>
-#include "glog/logging.h"
-
 #include "flashroute/address.h"
 #include "flashroute/dcb.h"
 #include "flashroute/dcb_manager.h"
 #include "flashroute/dump_result.h"
 #include "flashroute/network.h"
 #include "flashroute/prober.h"
+#include "glog/logging.h"
 
 namespace flashroute {
 
@@ -47,26 +46,26 @@ enum class ProberType { UDP_PROBER, UDP_IDEMPOTENT_PROBER };
  *                                // discovery-optimized mode.
  *    3,                          // Set the seed for guiding random processes,
  *                                // for example, destination generation or
- *                                // probing sequence randomization. 
+ *                                // probing sequence randomization.
  *    53,                         // Set the expected source port (can be
  *                                // overrided by algorithm).
  *    53,                         // Set the expected destination port.
  *    "test",                     // Message to encode into the payload of each
- *                                // probe.   
+ *                                // probe.
  *    true,                       // Control whether to encode timestamp to each
  *                                // probe. (Test function).
  *    0,                          // ttl offset to shift the range of ttl
  *    true                        // Randomize addresses in following scans.
  * );
- * 
+ *
  * // startScan accepts two parameters:
  * // regenerateDestinationAfterPreprobing: control whether or not to
  * // regenerate destinations after preprobing.
- * // withTimestamp: 
- * 
+ * // withTimestamp:
+ *
  * tracerouter.startScan(false, true);
  * tracerouter.stopScan();
- * 
+ *
  */
 
 class Tracerouter {
@@ -149,13 +148,11 @@ class Tracerouter {
   uint64_t distanceAbnormalities_;
 
   // Record all observed interfaces in backward probing.
-  std::unordered_set<IpAddress*, IpAddressHash,
-                     IpAddressEquality>
+  std::unordered_set<IpAddress*, IpAddressHash, IpAddressEquality>
       backwardProbingStopSet_;
 
   // Record all observed interfaces in forward probing.
-  std::unordered_set<IpAddress*, IpAddressHash,
-                     IpAddressEquality>
+  std::unordered_set<IpAddress*, IpAddressHash, IpAddressEquality>
       forwardProbingDiscoverySet_;
 
   // Seed for randomization.
