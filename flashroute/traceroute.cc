@@ -136,8 +136,9 @@ void Tracerouter::startMetricMonitoring() {
             dcbManager_->size() * 100;
         if (lastSeenSentPackets != 0 && lastSeenReceivedPackets != 0) {
           LOG(INFO) << boost::format(
-                           "R: %d S: %5.2fk R: %5.2fk PreP: %5.2f RmnP: %5.2f "
-                           "IfCnt: %d FwIfCnt: %d") %
+                           "Round: %d Send speed: %5.2fk Receive speed: %5.2fk "
+                           "PreProbe update proportion: %5.2f Remaining block proportion: %5.2f "
+                           "Backward probing set: %d Forward probing set: %d") %
                            probingIterationRounds_ % (sendingSpeed / 1000) %
                            (receivingSpeed / 1000) % preprobeUpdatedProportion %
                            remainingBlockProportion %
@@ -168,8 +169,10 @@ void Tracerouter::startScan(ProberType proberType, bool ipv4,
   VLOG(2) << "There are " << dcbManager_->size() << " targets to probe.";
 
   startMetricMonitoring();
+  // pre-probing
   if (preprobingMark_) {
     startPreprobing(proberType, ipv4);
+    // random probing
     if (randomizeAddressAfterPreprobing) {
       dcbManager_->randomizeAddress();
     } else {
@@ -277,12 +280,14 @@ void Tracerouter::startProbing(ProberType proberType, bool ipv4) {
         }
       };
 
+  // UDP probe
   if (proberType == ProberType::UDP_PROBER) {
+    // IPv4
     if (ipv4) {
       prober_ = std::make_unique<UdpProber>(&callback, 0, kMainProbePhase,
                                             dstPort_, defaultPayloadMessage_,
                                             encodeTimestamp_, ttlOffset_);
-
+    // Ipv6
     } else {
       prober_ = std::make_unique<UdpProberIpv6>(
           &callback, 0, kPreProbePhase, dstPort_, defaultPayloadMessage_,
@@ -296,20 +301,23 @@ void Tracerouter::startProbing(ProberType proberType, bool ipv4) {
     LOG(FATAL) << "Error in creating prober.";
   }
 
+  // ?
   networkManager_->resetProber(prober_.get());
+  // open sockets
   networkManager_->startListening();
+  // time
   auto startTimestamp = std::chrono::steady_clock::now();
   auto lastRoundTimestamp = std::chrono::steady_clock::now();
 
   // Take a snapshot for DCBs' links.
+  // TODO: finish work
   if (scanCount_ > 1) {
     dcbManager_->snapshot();
   }
 
   LOG(INFO) << "Start main probing.";
   int32_t scanRound  = -1;
-  for (int scanCount = 0; scanCount < scanCount_ && !stopProbing_;
-       scanCount++) {
+  for (int scanCount = 0; scanCount < scanCount_ && !stopProbing_; scanCount++) {
     if (scanCount > 0) {
       LOG(INFO) << "< ===========";
       LOG(INFO) << scanCount
@@ -325,41 +333,40 @@ void Tracerouter::startProbing(ProberType proberType, bool ipv4) {
     }
     // send probes to all targeting blocks
     do {
+      // sending time control
       if (dcbManager_->scanRound > scanRound) {
         probingIterationRounds_ += 1;
         // Sleep one second if the delta is less than one second.
         int32_t delta =
             std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - lastRoundTimestamp)
-                .count();
+                std::chrono::steady_clock::now() - lastRoundTimestamp).count();
         if (delta < 1000) {
           std::this_thread::sleep_for(std::chrono::milliseconds(1000 - delta));
         }
         lastRoundTimestamp = std::chrono::steady_clock::now();
         scanRound = dcbManager_->scanRound;
       }
+      // get next dcb
       DestinationControlBlock& dcb = *dcbManager_->next();
 
+      // get both forward and backward task
       uint8_t nextForwardTask = dcb.pullForwardTask();
       uint8_t nextBackwardTask = dcb.pullBackwardTask(ttlOffset_);
 
+      // check task are valid
       bool hasForwardTask = nextForwardTask != 0;
       bool hasBackwardTask = nextBackwardTask != 0;
-      // An entry will be removed only if backward and forward probings are
-      // all done.
-      if (!hasBackwardTask &&
-          (!forwardProbingMark_ || scanCount > 0 || !hasForwardTask)) {
+      // An entry will be removed only if backward and forward probings are all done.
+      if (!hasBackwardTask && (!forwardProbingMark_ || scanCount > 0 || !hasForwardTask)) {
         dcbManager_->removeDcbFromIteration(&dcb);
       } else {
         if (forwardProbingMark_ && hasForwardTask) {
           // forward probing
-          networkManager_->scheduleProbeRemoteHost(
-              *dcb.ipAddress, nextForwardTask);
+          networkManager_->scheduleProbeRemoteHost(*dcb.ipAddress, nextForwardTask);
         }
         if (hasBackwardTask) {
           // backward probing
-          networkManager_->scheduleProbeRemoteHost(
-              *dcb.ipAddress, nextBackwardTask);
+          networkManager_->scheduleProbeRemoteHost(*dcb.ipAddress, nextBackwardTask);
         }
       }
     } while (!stopProbing_ && dcbManager_->hasNext());

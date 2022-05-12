@@ -20,13 +20,11 @@ class BoundedBuffer {
   typedef typename ContainerType::value_type ValueType;
   typedef typename boost::call_traits<ValueType>::param_type param_type;
 
-  explicit BoundedBuffer(SizeType capacity)
-      : mUnread(0), mContainer(capacity) {}
+  explicit BoundedBuffer(SizeType capacity) : mUnread(0), mContainer(capacity) {}
 
   void pushFront(typename boost::call_traits<ValueType>::param_type item) {
     boost::mutex::scoped_lock lock(mMutex);
-    mNotFull.wait(
-        lock, boost::bind(&BoundedBuffer<ValueType>::isNotFull, this));
+    mNotFull.wait(lock, boost::bind(&BoundedBuffer<ValueType>::isNotFull, this));
     mContainer.push_front(item);
     ++mUnread;
     lock.unlock();
@@ -34,8 +32,7 @@ class BoundedBuffer {
   }
   void popBack(ValueType* pItem) {
     boost::mutex::scoped_lock lock(mMutex);
-    mNotEmpty.wait(
-        lock, boost::bind(&BoundedBuffer<ValueType>::isNotEmpty, this));
+    mNotEmpty.wait(lock, boost::bind(&BoundedBuffer<ValueType>::isNotEmpty, this));
     *pItem = mContainer[--mUnread];
     lock.unlock();
     mNotFull.notify_one();

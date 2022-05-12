@@ -340,6 +340,9 @@ int main(int argc, char* argv[]) {
       return 0;
     }
 
+    // 1st entry is probe type(protocal), only support UDP at this moment
+    // 2nd entry is IP(IPv4 or IPv6) type flag
+    // 3rd entry is random scan flag
     traceRouter.startScan(proberType, ipv4, false);
 
     // Terminate Tcpdump.

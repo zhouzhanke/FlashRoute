@@ -62,16 +62,19 @@ DcbManager* Targets::loadTargetsFromFile(
 DcbManager* Targets::generateTargetsFromNetwork(
     absl::string_view targetNetwork, const uint8_t granularity,
     const bool LookupByPrefixSupport) const {
+  // fixed space 1000?
   DcbManager* dcbManager =
       new DcbManager(1000, granularity, seed_, LookupByPrefixSupport);
 
+  // split IP address
+  // e.g. 0.0.0.0/24 -> parts[0]=0.0.0.0, parts[1]=24
   std::vector<absl::string_view> parts = absl::StrSplit(targetNetwork, "/");
   if (parts.size() != 2) {
     LOG(FATAL) << "Target network format is incorrect!!! " << targetNetwork;
   }
 
+  // parse subnet prefix length
   uint32_t subnetPrefixLength = 0;
-
   if (!absl::SimpleAtoi(parts[1], &subnetPrefixLength)) {
     LOG(FATAL) << "Failed to parse the target network.";
   }
@@ -79,26 +82,32 @@ DcbManager* Targets::generateTargetsFromNetwork(
   IpAddress* targetBaseAddress =
       parseIpFromStringToIpAddress(std::string(parts[0]));
 
+  // get first and last IP address
   IpAddress* targetNetworkFirstAddress_ =
       getFirstAddressOfBlock(*targetBaseAddress, subnetPrefixLength);
   IpAddress* targetNetworkLastAddress_ =
       getLastAddressOfBlock(*targetBaseAddress, subnetPrefixLength);
-
+  // error check
   if (*targetNetworkFirstAddress_ >= *targetNetworkLastAddress_) {
     LOG(FATAL) << "Ip address range is incorrect.";
   }
 
+  // log
   LOG(INFO) << boost::format("The target network is from %1% to %2%.") %
                    parseIpFromIpAddressToString(*targetNetworkFirstAddress_) %
                    parseIpFromIpAddressToString(*targetNetworkLastAddress_);
 
+  // IPv4 case
   if (targetBaseAddress->isIpv4()) {
+    // get scan IP size (range)
     uint64_t targetNetworkSize =
         static_cast<int64_t>(targetNetworkLastAddress_->getIpv4Address()) -
         static_cast<int64_t>(targetNetworkFirstAddress_->getIpv4Address()) + 1;
 
+    // get scan gap (granularity)
     uint64_t blockFactor_ =
         static_cast<uint64_t>(std::pow(2, 32 - granularity));
+    // get dcb (data control block) size
     uint64_t dcbCount = static_cast<uint64_t>(targetNetworkSize / blockFactor_);
 
     // set random seed.
@@ -106,7 +115,7 @@ DcbManager* Targets::generateTargetsFromNetwork(
     uint32_t actualCount = 0;
     uint32_t bogonCount = 0;
     for (uint64_t i = 0; i < dcbCount; i++) {
-      // randomly generate IP addresse avoid the first and last ip address
+      // randomly generate IP address avoid the first and last ip address
       // in the block.
       Ipv4Address tmp(targetNetworkFirstAddress_->getIpv4Address() +
                       ((i) << (32 - granularity)) +
